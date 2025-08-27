@@ -66,7 +66,7 @@ jobs:
       run: |
         set -e
 
-        chmod +x ./wax/wax.sh
+        chmod +x ./femtoshim.sh
         echo "Downloading file from https://dl.cros.download/files/${board}/${board}.zip..."
         wget -q "https://dl.cros.download/files/${board}/${board}.zip" -O "./${board}.zip" || exit 1
         unzip "./${board}.zip"
