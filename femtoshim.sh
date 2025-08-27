@@ -5,14 +5,16 @@ export MAGENTA_B="\033[1;35m"
 export PINK_B="\x1b[1;38;2;235;170;238m"
 
 shim="$1"
+femtoshim="femtoshim.bin"
+truncate -s "200M" "$femtoshim"
 
 rootfs=$(mktemp -d)
 tempmount=$(mktemp -d)
 rm -rf "$rootfs"
 mkdir -p "$rootfs"
 
-dev=$(losetup -Pf --show "$shim")
-chromeos=$(cgpt find -l ROOT-A "$dev" | head -n 1)
+crosdev=$(losetup -Pf --show "$shim")
+chromeos=$(cgpt find -l ROOT-A "$crosdev" | head -n 1)
 mount -o ro "$chromeos" "$tempmount"
 
 export arch=x86_64
@@ -35,33 +37,58 @@ else
   echo "Please run on a raw shim."
   exit
 fi
+umount $tempmount
+dev=$(losetup -Pf --show $femtoshim)
 sync
-sectors=$(( (size + 511) / 512 ))
-start=$(sgdisk -F $dev | awk '{print $1}')
-sgdisk -d=3 "$dev"
-start=$(sgdisk -i=2 "$dev" | awk '/Last sector/ {print $3}')
-start=$((start + 1))
-sgdisk -n 3:$start:+${sectors} -c 3:"Femtoshim" "$dev"
-for n in $(seq 4 15); do
-    sgdisk -d=$n "$dev" >/dev/null 2>&1 || true
-done
-losetup -d $dev
-dev=$(losetup --find --show --partscan corsola.bin)
-mkfs.ext4 -F "${dev}p3" -L "Femtoshim" >/dev/null 2>&1
 
-root_bmount=$(mktemp -d)
-mount "${dev}p3" "$root_bmount"
+sgdisk --zap-all "$dev"
+sgdisk -n 1:2048:10239 -c 1:"STATE" "$dev"
+sgdisk -n 2:10240:75775 "$dev"
+size=$(du -sb $rootfs | awk '{print $1}')
+sectors=$(( (size + 4194304 + 511) / 512 ))
+sgdisk -n 3:75776:+${sectors} -c 3:"Femtoshim" "$dev"
+sgdisk -t 3:8300 "$dev"
+kernelpartition="${dev}p2"
+skpart=$(cgpt find -l KERN-A "$crosdev" | head -n 1)
+skpartnum="${skpart##*p}"
+sgdisk -i "$skpartnum" "$crosdev"
+dd if="$skpart" of="$kernelpartition" status=none
+
+sgdisk --partition-guid=2:B5BAF579-07EF-A747-858B-87C0E507CD29 "$dev"
+cgpt add -i 2 -t "$(cgpt show -i "$skpartnum" -t "$crosdev")" -l "$(cgpt show -i "$skpartnum" -l "$crosdev")" -P 15 -T 15 -S 1 "$dev" >/dev/null
+
+state="${dev}p1"
+root="${dev}p3"
+
+mkfs.ext4 -F "$state" -L "STATE" >/dev/null 2>&1
+mkfs.ext4 -F "$root" -L "Femtoshim" >/dev/null 2>&1
+
+statemount=$(mktemp -d)
+root_mount=$(mktemp -d)
+
+mount "$state" "$statemount"
+mkdir -p "$statemount/dev_image/etc/"
+touch "$statemount/dev_image/etc/lsb-factory"
+
+mount "$root" "$root_mount"
 
 cp -a ./init $rootfs/sbin/init
-rsync -a --delete "$rootfs/." "$root_bmount" >/dev/null 2>&1 || { echo "failed to copy all files"; exit 1; }
-chmod +x "$root_bmount/sbin/init" 2>/dev/null
+rsync -a --delete "$rootfs/." "$root_mount" >/dev/null 2>&1 || { echo "failed to copy all files"; exit 1; }
+chmod +x "$root_mount/sbin/init" 2>/dev/null
 sync
 
-umount "$root_bmount" -l 2>/dev/null
+umount "$root_mount"
+partprobe
+sleep 3
+e2fsck -fy $root
+resize2fs -M $root
 
 losetup -D
-mv "$shim" "femtoshim-${boardname}.bin" 2>/dev/null
+end=$(parted -m "$femtoshim" unit B print | tail -n 1 | cut -d: -f3 | sed 's/B//')
+end=$((end + 512))
+truncate -s "$end" "$femtoshim"
 finalshim="femtoshim-${boardname}.bin"
+mv "$femtoshim" "$finalshim" 2>/dev/null
 
 echo -e "${MAGENTA_B}Done! Credits:"
 echo -e "${PINK_B}Sophia${COLOR_RESET}: Writing Femtoshim"
