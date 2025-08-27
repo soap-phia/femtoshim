@@ -41,13 +41,13 @@ umount $tempmount
 dev=$(losetup -Pf --show $femtoshim)
 sync
 
-sgdisk --zap-all "$dev"
-sgdisk -n 1:2048:10239 -c 1:"STATE" "$dev"
-sgdisk -n 2:10240:75775 "$dev"
+sgdisk --zap-all "$dev" >/dev/null 2>&1
+sgdisk -n 1:2048:10239 -c 1:"STATE" "$dev" >/dev/null 2>&1
+sgdisk -n 2:10240:75775 "$dev" >/dev/null 2>&1
 size=$(du -sb $rootfs | awk '{print $1}')
 sectors=$(( (size + 4194304 + 511) / 512 ))
-sgdisk -n 3:75776:+${sectors} -c 3:"Femtoshim" "$dev"
-sgdisk -t 3:8300 "$dev"
+sgdisk -n 3:75776:+${sectors} -c 3:"Femtoshim" "$dev" >/dev/null 2>&1
+sgdisk -t 3:8300 "$dev" >/dev/null 2>&1
 kernelpartition="${dev}p2"
 skpart=$(cgpt find -l KERN-A "$crosdev" | head -n 1)
 skpartnum="${skpart##*p}"
