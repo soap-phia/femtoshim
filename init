@@ -1,0 +1,14 @@
+#!/bin/busybox sh
+
+printf "\033]input:on\a"
+printf "\033[?25h"
+
+/bin/busybox --install /bin || true
+export PATH='/bin:/sbin:/usr/bin:/usr/sbin'
+
+clear
+echo -e "Exiting this shell will crash your chromebook. None of the ChromeOS shim commands work here.\n If you wanted them to, you're in the wrong shim."
+
+tty1=/dev/tty1
+[ -f /dev/pts/0 ] && tty=/dev/pts/0
+setsid /bin/busybox sh -c "exec script -afqc 'while true; do /bin/busybox sh || true; done' /dev/null <${tty} >>${tty} 2>&1"
